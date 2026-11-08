@@ -1,0 +1,47 @@
+name: AOSP17 PE archived AArch64 GCC49 ownership gate
+on:
+  push:
+    branches:
+      - audit/a17-mondrian-legacy-gcc49-boundary-20261108
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-archive-and-aosp17:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: |
+            repo.prop
+            tests
+            docs
+            .github
+      - name: Validate independent AOSP17 source profile
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch port/a17-aosp17-manifest-20261102 \
+            https://github.com/PixelExperience-Reborn/manifest.git "$RUNNER_TEMP/pe-a17-manifest"
+          python3 "$RUNNER_TEMP/pe-a17-manifest/tools/validate_aosp17_base_profiles.py"
+          python3 -m unittest discover -s "$RUNNER_TEMP/pe-a17-manifest/tools" \
+            -p test_aosp17_manifest_entrypoint.py -v
+          python3 "$RUNNER_TEMP/pe-a17-manifest/tools/validate_135_repository_matrix.py"
+      - name: Check historical GCC objects and pinned Soong toolchain
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --retry 3 \
+            "https://raw.githubusercontent.com/PixelExperience-Reborn/build_soong/6215d41c790a463b7795ce81ac77204c238cbf48/cc/config/global.go" \
+            --output "$RUNNER_TEMP/aosp17-soong-global.go"
+          test -s "$RUNNER_TEMP/aosp17-soong-global.go"
+          PE_AOSP17_REFERENCE="$RUNNER_TEMP/pe-a17-manifest/aosp17_reference.xml" \
+          PE_AOSP17_ACTIVE="$RUNNER_TEMP/pe-a17-manifest/default.xml" \
+          PE_AOSP17_SOONG_GLOBAL="$RUNNER_TEMP/aosp17-soong-global.go" \
+            python3 tests/test_aosp17_legacy_gcc49_boundary.py
+      - name: Scope
+        run: |
+          echo "Archived GCC/assembler binaries were not fetched or executed."
+          echo "This does not prove Linux 5.10 kernel or Android17 build/boot compatibility."
